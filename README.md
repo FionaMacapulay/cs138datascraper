@@ -23,8 +23,14 @@ Extracts weekly common fuel prices from DOE PDFs and merges them into one CSV.
    ```
 
 3. **Modify the scripts for your assigned region**
-   - Update `extract_pdfs.py` and `merge_csvs.py` (such as region names, region sort order, and any region-specific province/city/OCR fixes) to match your assigned region.
-   - Open `merge_csvs.py` and edit **line 7** (`OUTPUT_CSV = Path("doe_north_luzon_prices.csv")`) to set your desired output file name (for example, `Path("doe_south_luzon_prices.csv")`).
+   - **In `extract_pdfs.py`:**
+     - **`REGION_ORDER`:** Update the region list to match your assigned area.
+     - **`normalize_region()`:** Update the keyword checks and return labels so each region in your PDFs maps to its standard name.
+     - **`PROVINCE_FIXES` & `join_place()`:** Add any region-specific province/city names or OCR spacing fixes.
+   - **In `merge_csvs.py`:**
+     - **Line 7 (`OUTPUT_CSV`):** Change `OUTPUT_CSV = Path("doe_north_luzon_prices.csv")` to your desired output file name (for example, `Path("doe_south_luzon_prices.csv")`).
+     - **`REGION_ORDER`:** Update to match `extract_pdfs.py`.
+     - **`build_canonical_maps()`, `repair_place_columns()`, & `sort_master_df()`:** Update any region/province/city rules if your PDFs use different labels.
 
 4. **Add your PDFs**
    - Create a `pdfs/` folder in the project root.
