@@ -2,7 +2,7 @@
 
 Extracts weekly common fuel prices from DOE North Luzon PDFs and merges them into one CSV.
 
-## Libraries to Install
+## Libraries Included:
 
 * `pdfplumber` — reads text from text-based PDFs
 * `pymupdf` (`fitz`) — text fallback and renders image-only pages for OCR
