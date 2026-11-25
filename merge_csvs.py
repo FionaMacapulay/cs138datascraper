@@ -1,3 +1,4 @@
+import difflib
 import re
 from pathlib import Path
 import pandas as pd
@@ -56,6 +57,54 @@ def week_sort_key(col_name):
     return (year, month, day, col_name)
 
 
+def build_known_places(dfs):
+    known = {}
+    for df in dfs:
+        valid = df[(df["Province"] != "") & (df["City"] != "")]
+        for region, prov, city in valid[["North Luzon", "Province", "City"]].drop_duplicates().itertuples(index=False):
+            known.setdefault(region, set()).add((prov, city))
+    return known
+
+
+def repair_place_columns(df, known_places):
+    df = df.copy()
+
+    for idx, row in df.iterrows():
+        region = row["North Luzon"]
+        prov = row["Province"]
+        city = row["City"]
+
+        if prov or not city or region not in known_places:
+            continue
+
+        candidates = known_places[region]
+        combined_map = {f"{p} {c}": (p, c) for p, c in candidates}
+
+        if city in combined_map:
+            df.at[idx, "Province"], df.at[idx, "City"] = combined_map[city]
+            continue
+
+        suffix_matches = [(p, c) for p, c in candidates if city.endswith(f" {c}") or city == c]
+        if len(suffix_matches) == 1:
+            df.at[idx, "Province"], df.at[idx, "City"] = suffix_matches[0]
+            continue
+
+        close = difflib.get_close_matches(city, combined_map.keys(), n=1, cutoff=0.8)
+        if close:
+            df.at[idx, "Province"], df.at[idx, "City"] = combined_map[close[0]]
+
+    return df
+
+
+def coalesce_by_keys(df, week_cols):
+    cleaned = df.copy()
+    for col in week_cols:
+        cleaned[col] = cleaned[col].replace({"-": pd.NA, "": pd.NA})
+
+    grouped = cleaned.groupby(KEY_COLS, as_index=False, dropna=False)[week_cols].first()
+    return grouped.fillna("-")
+
+
 def sort_master_df(df):
     region_rank = {r: i for i, r in enumerate(REGION_ORDER)}
     product_rank = {p: i for i, p in enumerate(PRODUCT_ORDER)}
@@ -74,26 +123,29 @@ csv_files = sorted(EXTRACTED_DIR.glob("*.csv"))
 if not csv_files:
     raise SystemExit(f"No CSV files found in {EXTRACTED_DIR}")
 
-master_df = pd.DataFrame(columns=KEY_COLS)
-
+loaded_dfs = []
 for csv_path in csv_files:
     df = pd.read_csv(csv_path, dtype=str)
     for col in KEY_COLS:
         if col in df.columns:
             df[col] = df[col].fillna("").str.strip()
-
     week_cols = [c for c in df.columns if c not in KEY_COLS]
-    if not week_cols:
-        continue
+    if week_cols:
+        loaded_dfs.append((csv_path.name, df[KEY_COLS + week_cols], week_cols))
 
-    df = df.drop_duplicates(subset=KEY_COLS, keep="first")
+known_places = build_known_places([df for _, df, _ in loaded_dfs])
+master_df = pd.DataFrame(columns=KEY_COLS)
+
+for name, df, week_cols in loaded_dfs:
+    df = repair_place_columns(df, known_places)
+    df = coalesce_by_keys(df, week_cols)
 
     overlap = [c for c in week_cols if c in master_df.columns]
     if overlap:
         master_df = master_df.drop(columns=overlap)
 
-    master_df = pd.merge(master_df, df[KEY_COLS + week_cols], on=KEY_COLS, how="outer")
-    print(f"Merged {csv_path.name} ({len(df)} rows)")
+    master_df = pd.merge(master_df, df, on=KEY_COLS, how="outer")
+    print(f"Merged {name} ({len(df)} rows)")
 
 all_week_cols = sorted(
     [c for c in master_df.columns if c not in KEY_COLS],
