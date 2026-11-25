@@ -5,7 +5,7 @@ import pandas as pd
 
 EXTRACTED_DIR = Path("extracted")
 OUTPUT_CSV = Path("doe_north_luzon_prices.csv")
-KEY_COLS = ["North Luzon", "Province", "City", "Product"]
+KEY_COLS = ["Region", "Province", "City", "Product"]
 
 REGION_ORDER = [
     "Cordillera Administrative Region (CAR)",
@@ -61,7 +61,7 @@ def build_known_places(dfs):
     known = {}
     for df in dfs:
         valid = df[(df["Province"] != "") & (df["City"] != "")]
-        for region, prov, city in valid[["North Luzon", "Province", "City"]].drop_duplicates().itertuples(index=False):
+        for region, prov, city in valid[["Region", "Province", "City"]].drop_duplicates().itertuples(index=False):
             known.setdefault(region, set()).add((prov, city))
     return known
 
@@ -70,7 +70,7 @@ def repair_place_columns(df, known_places):
     df = df.copy()
 
     for idx, row in df.iterrows():
-        region = row["North Luzon"]
+        region = row["Region"]
         prov = row["Province"]
         city = row["City"]
 
@@ -110,10 +110,10 @@ def sort_master_df(df):
     product_rank = {p: i for i, p in enumerate(PRODUCT_ORDER)}
 
     df = df.copy()
-    df["_r"] = df["North Luzon"].map(lambda x: region_rank.get(x, 999))
+    df["_r"] = df["Region"].map(lambda x: region_rank.get(x, 999))
     df["_p"] = df["Product"].map(lambda x: product_rank.get(x, 999))
     df = df.sort_values(
-        by=["_r", "North Luzon", "Province", "City", "_p"],
+        by=["_r", "Region", "Province", "City", "_p"],
         kind="stable",
     )
     return df.drop(columns=["_r", "_p"]).reset_index(drop=True)

@@ -8,13 +8,27 @@ from rapidocr_onnxruntime import RapidOCR
 INPUT_FOLDER = Path("pdfs")
 OUTPUT_DIR = Path("extracted")
 SKIP_EXISTING = True
-KEY_COLS = ["North Luzon", "Province", "City", "Product"]
+KEY_COLS = ["Region", "Province", "City", "Product"]
 
 REGION_ORDER = [
+    "National Capital Region (NCR)",
     "Cordillera Administrative Region (CAR)",
     "Ilocos Region (REGION I)",
     "Cagayan Valley (REGION II)",
     "Central Luzon (REGION III)",
+    "CALABARZON (REGION IV-A)",
+    "MIMAROPA (REGION IV-B)",
+    "Bicol Region (REGION V)",
+    "Western Visayas (REGION VI)",
+    "Negros Island Region (NIR)",
+    "Central Visayas (REGION VII)",
+    "Eastern Visayas (REGION VIII)",
+    "Zamboanga Peninsula (REGION IX)",
+    "Northern Mindanao (REGION X)",
+    "Davao Region (REGION XI)",
+    "SOCCSKSARGEN (REGION XII)",
+    "Caraga (REGION XIII)",
+    "Bangsamoro Autonomous Region in Muslim Mindanao (BARMM)",
 ]
 
 PRODUCT_ORDER = [
@@ -82,14 +96,44 @@ def safe_filename(label):
 
 def normalize_region(text):
     upper = clean_text(text).upper()
+    if "NATIONAL CAPITAL" in upper or "(NCR)" in upper:
+        return "National Capital Region (NCR)"
     if "CORDILLERA" in upper or "(CAR)" in upper:
         return "Cordillera Administrative Region (CAR)"
-    if "CENTRAL" in upper:
+    if "BANGSAMORO" in upper or "BARMM" in upper or "ARMM" in upper:
+        return "Bangsamoro Autonomous Region in Muslim Mindanao (BARMM)"
+    if "NEGROS ISLAND" in upper or "(NIR)" in upper:
+        return "Negros Island Region (NIR)"
+    if "CALABARZON" in upper or "IV-A" in upper or "IVA" in upper:
+        return "CALABARZON (REGION IV-A)"
+    if "MIMAROPA" in upper or "IV-B" in upper or "IVB" in upper:
+        return "MIMAROPA (REGION IV-B)"
+    if "BICOL" in upper or "REGION V)" in upper or "REGION 5" in upper:
+        return "Bicol Region (REGION V)"
+    if "WESTERN VISAYAS" in upper or "REGION VI)" in upper or "REGION 6" in upper:
+        return "Western Visayas (REGION VI)"
+    if "CENTRAL VISAYAS" in upper or "REGION VII)" in upper or "REGION 7" in upper:
+        return "Central Visayas (REGION VII)"
+    if "EASTERN VISAYAS" in upper or "REGION VIII)" in upper or "REGION 8" in upper:
+        return "Eastern Visayas (REGION VIII)"
+    if "ZAMBOANGA" in upper or "REGION IX)" in upper or "REGION 9" in upper:
+        return "Zamboanga Peninsula (REGION IX)"
+    if "NORTHERN MINDANAO" in upper or "REGION X)" in upper or "REGION 10" in upper:
+        return "Northern Mindanao (REGION X)"
+    if "DAVAO" in upper or "REGION XI)" in upper or "REGION 11" in upper:
+        return "Davao Region (REGION XI)"
+    if "SOCCSKSARGEN" in upper or "REGION XII)" in upper or "REGION 12" in upper:
+        return "SOCCSKSARGEN (REGION XII)"
+    if "CARAGA" in upper or "REGION XIII)" in upper or "REGION 13" in upper:
+        return "Caraga (REGION XIII)"
+    if "CENTRAL LUZON" in upper or "REGION III" in upper:
         return "Central Luzon (REGION III)"
-    if "CAGAYAN" in upper:
+    if "CAGAYAN" in upper or "REGION II" in upper:
         return "Cagayan Valley (REGION II)"
-    if "ILOCOS" in upper or "LLOCOS" in upper or "LOCOS" in upper:
+    if "ILOCOS" in upper or "LLOCOS" in upper or "LOCOS" in upper or "REGION I)" in upper:
         return "Ilocos Region (REGION I)"
+    if "REGION" in upper and "MONITORING" not in upper:
+        return clean_text(text)
     return ""
 
 
@@ -158,6 +202,7 @@ def ocr_page_to_words(fitz_page, zoom=2.0):
         })
     return words
 
+
 def deskew_words(words):
     prov_word = next((w for w in words if "PROVINCE" in w["text"].upper()), None)
     if not prov_word:
@@ -201,77 +246,105 @@ def deskew_words(words):
         })
     return deskewed
 
-def find_left_column_bounds(words, fallback_bounds=None):
-    prov_word = None
-    for w in words:
-        if "PROVINCE" in w["text"].upper():
-            prov_word = w
-            break
 
+def find_column_bounds(words, fallback_bounds=None):
+    prov_word = next((w for w in words if "PROVINCE" in w["text"].upper()), None)
     header_bottom = 0
     prov_max = None
+    common_min_x = None
 
     if prov_word:
         hy = prov_word["top"]
-        header_band = [w for w in words if abs(w["top"] - hy) <= 22]
+        header_band = [w for w in words if abs(w["top"] - hy) <= 25]
         city_words = [
             w for w in header_band
             if "CITY" in w["text"].upper() or "MUNICIPAL" in w["text"].upper()
         ]
         prod_words = [w for w in header_band if "PRODUCT" in w["text"].upper()]
-        header_bottom = max(w["bottom"] for w in [prov_word] + city_words + prod_words)
+        common_words = [
+            w for w in header_band
+            if ("COMMON" in w["text"].upper() or "COM" == w["text"].upper())
+            and w["x0"] > 500
+        ]
+
+        header_bottom = max(
+            w["bottom"] for w in [prov_word] + city_words + prod_words + common_words
+        )
         if city_words:
             prov_max = (prov_word["x1"] + min(w["x0"] for w in city_words)) / 2
+        if common_words:
+            common_min_x = min(w["x0"] for w in common_words) - 15
 
     body_prod_x0 = [
         w["x0"] for w in words
         if w["top"] > header_bottom
-        and re.match(r"^(RON|DIESEL|KEROSENE)\b", w["text"].upper())
+        and re.match(r"^(R[O0]N|DIESEL|KEROSENE)\b", w["text"].upper())
     ]
 
     if body_prod_x0:
         prod_x0 = sorted(body_prod_x0)[len(body_prod_x0) // 2]
         if prov_max is None:
             prov_max = fallback_bounds["prov_max"] if fallback_bounds else prod_x0 * 0.45
+        if common_min_x is None:
+            max_x = max(w["x1"] for w in words)
+            common_min_x = fallback_bounds["common_min_x"] if fallback_bounds else max_x - 75
         return {
             "prov_max": prov_max,
             "city_max": prod_x0 - 4,
-            "prod_max": prod_x0 + 75,
+            "prod_max": prod_x0 + 85,
+            "common_min_x": common_min_x,
             "header_bottom": header_bottom,
         }
 
     return fallback_bounds
 
 
-def match_product(line, city_max, prod_max):
-    prod_words = [
-        w["text"] for w in line
+def match_product_from_words(band_words, city_max, prod_max):
+    pw = [
+        w["text"] for w in sorted(band_words, key=lambda x: x["x0"])
         if city_max <= (w["x0"] + w["x1"]) / 2 <= prod_max
     ]
-    text = " ".join(prod_words).upper()
+    text = " ".join(pw).upper()
     for name, pattern in PRODUCT_PATTERNS:
         if pattern.search(text):
             return name
     return None
 
 
-def extract_common_price(line):
-    if not line:
-        return "-"
-    rightmost = line[-1]["text"].strip()
-    if "#" in rightmost or "N/A" in rightmost.upper():
-        return "-"
-    matches = re.findall(r"\d+\.\d{2}", rightmost)
+def parse_price_token(token):
+    t = token.strip()
+    if not t or "#" in t or "N/A" in t.upper():
+        return None
+    matches = re.findall(r"\d+\.\d{2}", t)
     if matches:
         return float(matches[-1])
-    match = re.search(r"\d+\.\d+", rightmost)
-    return float(match.group()) if match else "-"
+    match = re.search(r"\d+\.\d+", t)
+    return float(match.group()) if match else None
+
+
+def extract_common_price_from_band(band_words, line, common_min_x):
+    right_words = [
+        w for w in sorted(band_words, key=lambda x: x["x0"])
+        if (w["x0"] + w["x1"]) / 2 >= common_min_x
+    ]
+    for w in reversed(right_words):
+        val = parse_price_token(w["text"])
+        if val is not None:
+            return val
+
+    if line:
+        for w in reversed(line):
+            val = parse_price_token(w["text"])
+            if val is not None:
+                return val
+
+    return "-"
 
 
 def join_place(words, is_province=False):
     if not words:
         return ""
-    ordered = sorted(words, key=lambda w: (round(w["top"] / 5), w["x0"]))
+    ordered = sorted(words, key=lambda w: (round(w["top"] / 6), w["x0"]))
     s = clean_text(" ".join(w["text"] for w in ordered)).upper()
     s = re.sub(r"([A-Z])CITY\b", r"\1 CITY", s)
     s = re.sub(r"\bCITYOF", "CITY OF ", s)
@@ -289,10 +362,10 @@ def sort_df(df):
     region_rank = {r: i for i, r in enumerate(REGION_ORDER)}
     product_rank = {p: i for i, p in enumerate(PRODUCT_ORDER)}
     df = df.copy()
-    df["_r"] = df["North Luzon"].map(lambda x: region_rank.get(x, 999))
+    df["_r"] = df["Region"].map(lambda x: region_rank.get(x, 999))
     df["_p"] = df["Product"].map(lambda x: product_rank.get(x, 999))
     df = df.sort_values(
-        by=["_r", "North Luzon", "Province", "City", "_p"],
+        by=["_r", "Region", "Province", "City", "_p"],
         kind="stable",
     )
     return df.drop(columns=["_r", "_p"]).reset_index(drop=True)
@@ -330,14 +403,15 @@ def parse_pdf(pdf_path, week_col):
                 continue
 
             words = deskew_words(words)
-            y_tol = 4.5 if source == "ocr" else 2.5
+
+            y_tol = 5.0 if source == "ocr" else 3.5
             lines = group_words_into_lines(words, y_tol=y_tol)
 
             region = extract_region(lines) or last_region
             if region:
                 last_region = region
 
-            bounds = find_left_column_bounds(words, fallback_bounds=last_bounds)
+            bounds = find_column_bounds(words, fallback_bounds=last_bounds)
             if not bounds:
                 print(f"  p{idx + 1} [{source}]: no bounds")
                 continue
@@ -346,21 +420,34 @@ def parse_pdf(pdf_path, week_col):
             prov_max = bounds["prov_max"]
             city_max = bounds["city_max"]
             prod_max = bounds["prod_max"]
+            common_min_x = bounds["common_min_x"]
             header_bottom = bounds["header_bottom"]
 
+            body_words = [w for w in words if w["top"] > header_bottom + 1]
             product_rows = []
+
             for line in lines:
                 y_top = min(w["top"] for w in line)
+                y_bot = max(w["bottom"] for w in line)
                 if y_top <= header_bottom + 1:
                     continue
-                prod = match_product(line, city_max, prod_max)
-                if prod:
-                    product_rows.append({
-                        "top": y_top,
-                        "bottom": max(w["bottom"] for w in line),
-                        "product": prod,
-                        "price": extract_common_price(line),
-                    })
+
+                prod = match_product_from_words(line, city_max, prod_max)
+                if not prod:
+                    continue
+
+                band_words = [
+                    w for w in body_words
+                    if (y_top - 4.0) <= ((w["top"] + w["bottom"]) / 2) <= (y_bot + 4.0)
+                ]
+                price = extract_common_price_from_band(band_words, line, common_min_x)
+
+                product_rows.append({
+                    "top": y_top,
+                    "bottom": y_bot,
+                    "product": prod,
+                    "price": price,
+                })
 
             blocks = []
             current_block = []
@@ -373,12 +460,10 @@ def parse_pdf(pdf_path, week_col):
             if current_block:
                 blocks.append(current_block)
 
-            body_words = [w for w in words if w["top"] > header_bottom + 1]
-
             raw_block_provs = []
             for block in blocks:
-                y_start = block[0]["top"] - 6
-                y_end = block[-1]["bottom"] + 6
+                y_start = block[0]["top"] - 10
+                y_end = block[-1]["bottom"] + 10
                 p_words = [
                     w for w in body_words
                     if y_start <= w["top"] <= y_end and (w["x0"] + w["x1"]) / 2 < prov_max
@@ -388,8 +473,8 @@ def parse_pdf(pdf_path, week_col):
             unique_page_provs = [p for p in dict.fromkeys(raw_block_provs) if p]
 
             for block, raw_prov in zip(blocks, raw_block_provs):
-                y_start = block[0]["top"] - 6
-                y_end = block[-1]["bottom"] + 6
+                y_start = block[0]["top"] - 10
+                y_end = block[-1]["bottom"] + 10
                 c_words = [
                     w for w in body_words
                     if y_start <= w["top"] <= y_end
@@ -408,7 +493,7 @@ def parse_pdf(pdf_path, week_col):
 
                 for row in block:
                     records.append({
-                        "North Luzon": region,
+                        "Region": region,
                         "Province": prov_name,
                         "City": city_name,
                         "Product": row["product"],
