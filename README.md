@@ -1,6 +1,6 @@
-# DOE North Luzon Fuel Price Scraper
+# DOE Price Scraper
 
-Extracts weekly common fuel prices from DOE North Luzon PDFs and merges them into one CSV.
+Extracts weekly common fuel prices from DOE PDFs and merges them into one CSV.
 
 ## Libraries Included:
 
