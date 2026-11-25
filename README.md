@@ -24,20 +24,22 @@ Extracts weekly common fuel prices from DOE North Luzon PDFs and merges them int
 
 3. **Add your PDFs**
    * Create a `pdfs/` folder in the project root.
-   * Drop the weekly DOE PDF files into `pdfs/`.
+   * Download all the weekly DOE PDF files and place inside `pdfs/`.
 
 4. **Extract each PDF into its own CSV**
-   ```bash
+   * On your terminal (root folder), run:
+    ```bash
    python extract_pdfs.py
    ```
    * Per-week CSVs are saved in `extracted/`.
-   * Set `SKIP_EXISTING = False` in `extract_pdfs.py` to re-extract files already in `extracted/`.
+   * OPTIONAL: Set `SKIP_EXISTING = False` in `extract_pdfs.py` to re-extract files already in `extracted/`.
 
-5. **Merge all extracted weeks into one CSV**
+6. **Merge all extracted weeks into one CSV**
+   * After the extraction is done, run this on your terminal:
    ```bash
    python merge_csvs.py
    ```
    * Combines everything into `doe_north_luzon_prices.csv`, adding a column per week and new rows for new provinces or cities.
 
-6. **Close open CSVs before re-running**
+8. **Close open CSVs before re-running**
    * Close `doe_north_luzon_prices.csv` (and any CSVs in `extracted/`) in Excel before running either script to avoid a `PermissionError`.
