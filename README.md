@@ -24,7 +24,8 @@ Extracts weekly common fuel prices from DOE PDFs and merges them into one CSV.
 
 3. **Add your PDFs**
    * Create a `pdfs/` folder in the project root.
-   * Download all the weekly DOE PDF files and place inside `pdfs/`.
+   * Download all the weekly DOE PDF files and place them inside `pdfs/`.
+   * Downloading PDFs in batches is recommended since there are many of them.
 
 4. **Extract each PDF into its own CSV**
    * On your terminal (root folder), run:
