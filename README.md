@@ -34,7 +34,7 @@ Extracts weekly common fuel prices from DOE PDFs and merges them into one CSV.
 
 4. **Add your PDFs**
    - Create a `pdfs/` folder in the project root.
-   - Download all the weekly DOE PDF files for your assigned region and place them inside `pdfs/`.
+   - Download the weekly DOE PDF files for your assigned region from [DOE Retail Pump Prices](https://doe.gov.ph/data-and-prices/liquid-fuels/retail-pump-prices) and place them inside `pdfs/`.
    - Downloading PDFs in batches is recommended since there are many of them.
 
 5. **Extract each PDF into its own CSV**
