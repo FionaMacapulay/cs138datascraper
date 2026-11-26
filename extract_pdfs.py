@@ -44,10 +44,10 @@ PRODUCT_ORDER = [
 PRODUCT_RANK = {p: i for i, p in enumerate(PRODUCT_ORDER)}
 
 PRODUCT_PATTERNS = [
-    ("RON 100", re.compile(r"\bR[O0]N\s*100\b")),
+    ("RON 100", re.compile(r"\bR[O0]N\s*[1IL][O0][O0]\b")),
     ("RON 97", re.compile(r"\bR[O0]N\s*97\b")),
     ("RON 95", re.compile(r"\bR[O0]N\s*9[56]\b")),
-    ("RON 91", re.compile(r"\bR[O0]N\s*91\b")),
+    ("RON 91", re.compile(r"\bR[O0]N\s*9[1IL]\b")),
     ("DIESEL PLUS", re.compile(r"\bDIESEL\s*PLUS\b")),
     ("DIESEL", re.compile(r"\bDIESEL\b")),
     ("KEROSENE", re.compile(r"\bKEROSENE\b")),
@@ -288,6 +288,7 @@ def find_column_bounds(words, fallback_bounds=None):
             common_min_x = min(w["x0"] for w in common_words) - 4
         elif overall_words:
             overall_min_x = min(w["x0"] for w in overall_words) - 10
+
     body_prod_x0 = [
         w["x0"] for w in words
         if w["top"] > header_bottom
@@ -349,13 +350,12 @@ def extract_common_price_from_band(band_words, overall_min_x, common_min_x):
         w for w in sorted_band
         if (w["x0"] + w["x1"]) / 2 >= common_min_x
     ]
-    common_text = " ".join(w["text"] for w in common_words).upper()
-    if not any(tag in common_text for tag in ("NONE", "N/A", "#")):
-        common_prices = []
-        for w in common_words:
-            common_prices.extend(extract_prices_from_token(w["text"]))
-        if len(common_prices) == 1:
-            return common_prices[0]
+    common_prices = []
+    for w in common_words:
+        common_prices.extend(extract_prices_from_token(w["text"]))
+
+    if common_prices:
+        return common_prices[-1]
 
     range_words = [
         w for w in sorted_band
@@ -366,14 +366,11 @@ def extract_common_price_from_band(band_words, overall_min_x, common_min_x):
         range_prices.extend(extract_prices_from_token(w["text"]))
 
     if len(range_prices) >= 2:
-        lower_bound = range_prices[0]
-        upper_bound = range_prices[-1]
-        return round((lower_bound + upper_bound) / 2, 2)
+        return round((range_prices[0] + range_prices[-1]) / 2, 2)
     if len(range_prices) == 1:
         return range_prices[0]
 
     return "-"
-
 
 
 def join_place(words, is_province=False):
@@ -391,19 +388,6 @@ def join_place(words, is_province=False):
         if compact in PROVINCE_FIXES:
             return PROVINCE_FIXES[compact]
     return s
-
-
-def sort_df(df):
-    region_rank = {r: i for i, r in enumerate(REGION_ORDER)}
-    product_rank = {p: i for i, p in enumerate(PRODUCT_ORDER)}
-    df = df.copy()
-    df["_r"] = df["Region"].map(lambda x: region_rank.get(x, 999))
-    df["_p"] = df["Product"].map(lambda x: product_rank.get(x, 999))
-    df = df.sort_values(
-        by=["_r", "Region", "Province", "City", "_p"],
-        kind="stable",
-    )
-    return df.drop(columns=["_r", "_p"]).reset_index(drop=True)
 
 
 def parse_pdf(pdf_path, week_col):
@@ -459,13 +443,13 @@ def parse_pdf(pdf_path, week_col):
             common_min_x = bounds["common_min_x"]
             header_bottom = bounds["header_bottom"]
 
-            body_words = [w for w in words if w["top"] > header_bottom + 1]
+            body_words = [w for w in words if w["bottom"] > header_bottom]
             product_rows = []
 
             for line in lines:
                 y_top = min(w["top"] for w in line)
                 y_bot = max(w["bottom"] for w in line)
-                if y_top <= header_bottom + 1:
+                if y_bot <= header_bottom:
                     continue
 
                 prod = match_product_from_words(line, city_max, prod_max)
@@ -474,7 +458,7 @@ def parse_pdf(pdf_path, week_col):
 
                 band_words = [
                     w for w in body_words
-                    if (y_top - 4.0) <= ((w["top"] + w["bottom"]) / 2) <= (y_bot + 4.0)
+                    if (y_top - 1.5) <= ((w["top"] + w["bottom"]) / 2) <= (y_bot + 1.5)
                 ]
                 price = extract_common_price_from_band(
                     band_words, overall_min_x, common_min_x
@@ -529,22 +513,27 @@ def parse_pdf(pdf_path, week_col):
                 else:
                     prov_name = last_province
 
-                for row in block:
+                block_prices = {row["product"]: row["price"] for row in block}
+                for prod_name in PRODUCT_ORDER:
                     records.append({
                         "Region": region,
                         "Province": prov_name,
                         "City": city_name,
-                        "Product": row["product"],
-                        week_col: row["price"],
+                        "Product": prod_name,
+                        week_col: block_prices.get(prod_name, "-"),
                     })
 
             print(f"  p{idx + 1} [{source}]: {len(blocks)} cities, {len(product_rows)} rows")
 
     fitz_doc.close()
     df = pd.DataFrame(records, columns=KEY_COLS + [week_col])
-    df = df.drop_duplicates(subset=KEY_COLS, keep="first")
-    return df.reset_index(drop=True)
+    if df.empty:
+        return df
 
+    df[week_col] = df[week_col].replace({"-": pd.NA, "": pd.NA})
+    df = df.groupby(KEY_COLS, as_index=False, dropna=False, sort=False)[week_col].first()
+    df[week_col] = df[week_col].fillna("-")
+    return df.reset_index(drop=True)
 
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
