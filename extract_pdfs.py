@@ -251,6 +251,7 @@ def find_column_bounds(words, fallback_bounds=None):
     prov_word = next((w for w in words if "PROVINCE" in w["text"].upper()), None)
     header_bottom = 0
     prov_max = None
+    overall_min_x = None
     common_min_x = None
 
     if prov_word:
@@ -261,6 +262,11 @@ def find_column_bounds(words, fallback_bounds=None):
             if "CITY" in w["text"].upper() or "MUNICIPAL" in w["text"].upper()
         ]
         prod_words = [w for w in header_band if "PRODUCT" in w["text"].upper()]
+        overall_words = [
+            w for w in header_band
+            if ("OVERALL" in w["text"].upper() or "RANGE" in w["text"].upper())
+            and w["x0"] > 450
+        ]
         common_words = [
             w for w in header_band
             if ("COMMON" in w["text"].upper() or "COM" == w["text"].upper())
@@ -268,13 +274,20 @@ def find_column_bounds(words, fallback_bounds=None):
         ]
 
         header_bottom = max(
-            w["bottom"] for w in [prov_word] + city_words + prod_words + common_words
+            w["bottom"]
+            for w in [prov_word] + city_words + prod_words + overall_words + common_words
         )
         if city_words:
             prov_max = (prov_word["x1"] + min(w["x0"] for w in city_words)) / 2
-        if common_words:
-            common_min_x = min(w["x0"] for w in common_words) - 15
-
+        if overall_words and common_words:
+            common_min_x = (
+                max(w["x1"] for w in overall_words) + min(w["x0"] for w in common_words)
+            ) / 2
+            overall_min_x = min(w["x0"] for w in overall_words) - 10
+        elif common_words:
+            common_min_x = min(w["x0"] for w in common_words) - 4
+        elif overall_words:
+            overall_min_x = min(w["x0"] for w in overall_words) - 10
     body_prod_x0 = [
         w["x0"] for w in words
         if w["top"] > header_bottom
@@ -288,10 +301,17 @@ def find_column_bounds(words, fallback_bounds=None):
         if common_min_x is None:
             max_x = max(w["x1"] for w in words)
             common_min_x = fallback_bounds["common_min_x"] if fallback_bounds else max_x - 75
+        if overall_min_x is None:
+            overall_min_x = (
+                fallback_bounds["overall_min_x"]
+                if fallback_bounds and "overall_min_x" in fallback_bounds
+                else common_min_x - 95
+            )
         return {
             "prov_max": prov_max,
             "city_max": prod_x0 - 4,
             "prod_max": prod_x0 + 85,
+            "overall_min_x": overall_min_x,
             "common_min_x": common_min_x,
             "header_bottom": header_bottom,
         }
@@ -311,34 +331,49 @@ def match_product_from_words(band_words, city_max, prod_max):
     return None
 
 
-def parse_price_token(token):
+def extract_prices_from_token(token):
     t = token.strip()
-    if not t or "#" in t or "N/A" in t.upper():
-        return None
+    upper = t.upper()
+    if not t or "#" in t or "N/A" in upper or "NONE" in upper:
+        return []
     matches = re.findall(r"\d+\.\d{2}", t)
-    if matches:
-        return float(matches[-1])
-    match = re.search(r"\d+\.\d+", t)
-    return float(match.group()) if match else None
+    if not matches:
+        matches = re.findall(r"\d+\.\d+", t)
+    return [float(m) for m in matches if float(m) > 0]
 
 
-def extract_common_price_from_band(band_words, line, common_min_x):
-    right_words = [
-        w for w in sorted(band_words, key=lambda x: x["x0"])
+def extract_common_price_from_band(band_words, overall_min_x, common_min_x):
+    sorted_band = sorted(band_words, key=lambda x: x["x0"])
+
+    common_words = [
+        w for w in sorted_band
         if (w["x0"] + w["x1"]) / 2 >= common_min_x
     ]
-    for w in reversed(right_words):
-        val = parse_price_token(w["text"])
-        if val is not None:
-            return val
+    common_text = " ".join(w["text"] for w in common_words).upper()
+    if not any(tag in common_text for tag in ("NONE", "N/A", "#")):
+        common_prices = []
+        for w in common_words:
+            common_prices.extend(extract_prices_from_token(w["text"]))
+        if len(common_prices) == 1:
+            return common_prices[0]
 
-    if line:
-        for w in reversed(line):
-            val = parse_price_token(w["text"])
-            if val is not None:
-                return val
+    range_words = [
+        w for w in sorted_band
+        if overall_min_x <= (w["x0"] + w["x1"]) / 2 < common_min_x
+    ]
+    range_prices = []
+    for w in range_words:
+        range_prices.extend(extract_prices_from_token(w["text"]))
+
+    if len(range_prices) >= 2:
+        lower_bound = range_prices[0]
+        upper_bound = range_prices[-1]
+        return round((lower_bound + upper_bound) / 2, 2)
+    if len(range_prices) == 1:
+        return range_prices[0]
 
     return "-"
+
 
 
 def join_place(words, is_province=False):
@@ -420,6 +455,7 @@ def parse_pdf(pdf_path, week_col):
             prov_max = bounds["prov_max"]
             city_max = bounds["city_max"]
             prod_max = bounds["prod_max"]
+            overall_min_x = bounds["overall_min_x"]
             common_min_x = bounds["common_min_x"]
             header_bottom = bounds["header_bottom"]
 
@@ -440,7 +476,9 @@ def parse_pdf(pdf_path, week_col):
                     w for w in body_words
                     if (y_top - 4.0) <= ((w["top"] + w["bottom"]) / 2) <= (y_bot + 4.0)
                 ]
-                price = extract_common_price_from_band(band_words, line, common_min_x)
+                price = extract_common_price_from_band(
+                    band_words, overall_min_x, common_min_x
+                )
 
                 product_rows.append({
                     "top": y_top,
@@ -506,6 +544,7 @@ def parse_pdf(pdf_path, week_col):
     df = pd.DataFrame(records, columns=KEY_COLS + [week_col])
     df = df.drop_duplicates(subset=KEY_COLS, keep="first")
     return sort_df(df)
+
 
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
