@@ -543,7 +543,7 @@ def parse_pdf(pdf_path, week_col):
     fitz_doc.close()
     df = pd.DataFrame(records, columns=KEY_COLS + [week_col])
     df = df.drop_duplicates(subset=KEY_COLS, keep="first")
-    return sort_df(df)
+    return df.reset_index(drop=True)
 
 
 
